@@ -10,7 +10,9 @@
 #include "vector_td_utilities.h"
 namespace Gadgetron {
 
-gpuSenseGadget::gpuSenseGadget() {
+gpuSenseGadget::gpuSenseGadget()
+  : frame_counter_(0)
+{
 	matrix_size_ = uint64d2(0u,0u);
 	matrix_size_os_ = uint64d2(0u,0u);
 	matrix_size_seq_ = uint64d2(0u,0u);

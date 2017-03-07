@@ -1,4 +1,4 @@
-#include "gpuGenericSensePrepGadget.h"
+#include "gpuGenericSensePrepGadgetIterate.h"
 #include "cuNonCartesianSenseOperator.h"
 #include "GenericReconJob.h"
 #include "cuNDArray_elemwise.h"
@@ -19,7 +19,7 @@
 
 namespace Gadgetron{
 
-  gpuGenericSensePrepGadget::gpuGenericSensePrepGadget()
+  gpuGenericSensePrepGadgetIterate::gpuGenericSensePrepGadgetIterate()
     : slices_(-1)
     , sets_(-1)
     , device_number_(-1)
@@ -27,9 +27,9 @@ namespace Gadgetron{
   {
   }
   
-  gpuGenericSensePrepGadget::~gpuGenericSensePrepGadget() {}
+  gpuGenericSensePrepGadgetIterate::~gpuGenericSensePrepGadgetIterate() {}
   
-  int gpuGenericSensePrepGadget::process_config(ACE_Message_Block* mb)
+  int gpuGenericSensePrepGadgetIterate::process_config(ACE_Message_Block* mb)
   {
     // Get configuration values from config file
     //
@@ -276,7 +276,7 @@ namespace Gadgetron{
     return GADGET_OK;
   }
 
-  int gpuGenericSensePrepGadget::
+  int gpuGenericSensePrepGadgetIterate::
   process(GadgetContainerMessage<ISMRMRD::AcquisitionHeader> *m1,           // header
           GadgetContainerMessage< hoNDArray< std::complex<float> > > *m2,   // data
           GadgetContainerMessage< hoNDArray<float> > *m3)                   // traj/dcw
@@ -295,7 +295,7 @@ namespace Gadgetron{
 
     boost::shared_ptr<GPUTimer> process_timer;
     if( output_timing_ )
-      process_timer = boost::shared_ptr<GPUTimer>( new GPUTimer("gpuGenericSensePrepGadget::process()") );
+      process_timer = boost::shared_ptr<GPUTimer>( new GPUTimer("gpuGenericSensePrepGadgetIterate::process()") );
 
     // Some convienient utility variables
     //
@@ -687,7 +687,7 @@ namespace Gadgetron{
       // Pass the Sense job downstream
       //
       //ACW start
-      
+      /*
       GadgetContainerMessage<ISMRMRD::ImageHeader>* ncm1 =
 	new GadgetContainerMessage<ISMRMRD::ImageHeader>();
 
@@ -700,13 +700,6 @@ namespace Gadgetron{
       ncm2->getObjectPtr()->create(sj->getObjectPtr()->reg_host_.get()->get_dimensions());
 
       memcpy(ncm2->getObjectPtr()->get_data_ptr(),sj->getObjectPtr()->reg_host_.get()->get_data_ptr(),sj->getObjectPtr()->reg_host_.get()->get_number_of_elements()*sizeof(float)*2);
-      
-      //ACW test                                                                                                                                                                           
-      //boost::shared_ptr< hoNDArray<float_complext> > test = *ncm2->getObjectPtr()->get_data_ptr();                                                                                             
-      //GenericReconJob *test = m2->getObjectPtr();
-      //boost::shared_ptr< cuNDArray<float_complext> > test2(new cuNDArray<float_complext> (test->dat_host_.get()));
-      //write_nd_array<float_complext>(m2->getObjectPtr()->dat_host_.get(),"writetest.cplx");
-      
 
       ncm1->cont(ncm2);
       if(1){
@@ -719,7 +712,7 @@ namespace Gadgetron{
 	}
       }else{
 	ncm1->release();//ACW end
-      
+      */
 
       //RR sets
       //int RR;
@@ -732,7 +725,7 @@ namespace Gadgetron{
 	  m4->release();
 	  return GADGET_FAIL;
       	}
-	}//ACW end bracket
+	//}//ACW end bracket
     }
       
 
@@ -773,7 +766,7 @@ namespace Gadgetron{
   }
   
   boost::shared_ptr< hoNDArray<float_complext> > 
-  gpuGenericSensePrepGadget::extract_samples_from_queue ( ACE_Message_Queue<ACE_MT_SYNCH> *queue, 
+  gpuGenericSensePrepGadgetIterate::extract_samples_from_queue ( ACE_Message_Queue<ACE_MT_SYNCH> *queue, 
                                                           bool sliding_window, unsigned int set, unsigned int slice )
   {    
     unsigned int readouts_buffered = queue->message_count();
@@ -789,14 +782,14 @@ namespace Gadgetron{
       ACE_Message_Block* mbq;
       if (queue->dequeue_head(mbq) < 0) {
         GDEBUG("Message dequeue failed\n");
-        throw std::runtime_error("gpuGenericSensePrepGadget::extract_samples_from_queue: dequeing failed");	
+        throw std::runtime_error("gpuGenericSensePrepGadgetIterate::extract_samples_from_queue: dequeing failed");	
       }
       
       GadgetContainerMessage< hoNDArray< std::complex<float> > > *daq = AsContainerMessage<hoNDArray< std::complex<float> > >(mbq);
 	
       if (!daq) {
         GDEBUG("Unable to interpret data on message queue\n");
-        throw std::runtime_error("gpuGenericSensePrepGadget::extract_samples_from_queue: failed to interpret data");	
+        throw std::runtime_error("gpuGenericSensePrepGadgetIterate::extract_samples_from_queue: failed to interpret data");	
       }
 	
       for (unsigned int c = 0; c < num_coils_[set*slices_+slice]; c++) {
@@ -830,22 +823,22 @@ namespace Gadgetron{
   }
   
   boost::shared_ptr< hoNDArray<float> > 
-  gpuGenericSensePrepGadget::extract_trajectory_from_queue ( ACE_Message_Queue<ACE_MT_SYNCH> *queue, 
+  gpuGenericSensePrepGadgetIterate::extract_trajectory_from_queue ( ACE_Message_Queue<ACE_MT_SYNCH> *queue, 
                                                              bool sliding_window, unsigned int set, unsigned int slice )
   {    
     if(!queue) {
       GDEBUG("Illegal queue pointer, cannot extract trajectory\n");
-      throw std::runtime_error("gpuGenericSensePrepGadget::extract_trajectory_from_queue: illegal queue pointer");	
+      throw std::runtime_error("gpuGenericSensePrepGadgetIterate::extract_trajectory_from_queue: illegal queue pointer");	
     }
 
     if(queue->message_count()==0) {
       GDEBUG("Empty queue, cannot extract trajectory\n");
-      throw std::runtime_error("gpuGenericSensePrepGadget::extract_trajectory_from_queue: empty queue");	
+      throw std::runtime_error("gpuGenericSensePrepGadgetIterate::extract_trajectory_from_queue: empty queue");	
     }
 
     if(samples_per_readout_ < 1) {
       GDEBUG("Empty queue (%d), cannot extract trajectory\n", samples_per_readout_);
-      throw std::runtime_error("gpuGenericSensePrepGadget::extract_trajectory_from_queue: empty queue");	
+      throw std::runtime_error("gpuGenericSensePrepGadgetIterate::extract_trajectory_from_queue: empty queue");	
     }
     
     unsigned int readouts_buffered = queue->message_count();
@@ -861,14 +854,14 @@ namespace Gadgetron{
       ACE_Message_Block* mbq;
       if (queue->dequeue_head(mbq) < 0) {
         GDEBUG("Message dequeue failed\n");
-        throw std::runtime_error("gpuGenericSensePrepGadget::extract_trajectory_from_queue: dequeing failed");	
+        throw std::runtime_error("gpuGenericSensePrepGadgetIterate::extract_trajectory_from_queue: dequeing failed");	
       }
       
       GadgetContainerMessage< hoNDArray<float> > *daq = AsContainerMessage<hoNDArray<float> >(mbq);
 	
       if (!daq) {
         GDEBUG("Unable to interpret data on message queue\n");
-        throw std::runtime_error("gpuGenericSensePrepGadget::extract_trajectory_from_queue: failed to interpret data");	
+        throw std::runtime_error("gpuGenericSensePrepGadgetIterate::extract_trajectory_from_queue: failed to interpret data");	
       }
 
       float *data_ptr = host_samples->get_data_ptr();
@@ -893,7 +886,7 @@ namespace Gadgetron{
     return host_samples;
   }
   
-  void gpuGenericSensePrepGadget::extract_trajectory_and_dcw_from_queue
+  void gpuGenericSensePrepGadgetIterate::extract_trajectory_and_dcw_from_queue
   ( ACE_Message_Queue<ACE_MT_SYNCH> *queue, bool sliding_window, unsigned int set, unsigned int slice, 
     unsigned int samples_per_frame, unsigned int num_frames,
     cuNDArray<floatd2> *traj, cuNDArray<float> *dcw )
@@ -947,14 +940,14 @@ namespace Gadgetron{
   }
 
   template<class T> GadgetContainerMessage< hoNDArray<T> >*
-  gpuGenericSensePrepGadget::duplicate_array( GadgetContainerMessage< hoNDArray<T> > *array )
+  gpuGenericSensePrepGadgetIterate::duplicate_array( GadgetContainerMessage< hoNDArray<T> > *array )
   {
     GadgetContainerMessage< hoNDArray<T> > *copy = new GadgetContainerMessage< hoNDArray<T> >();   
     *(copy->getObjectPtr()) = *(array->getObjectPtr());
     return copy;
   }
 
-  void gpuGenericSensePrepGadget::reconfigure(unsigned int set, unsigned int slice)
+  void gpuGenericSensePrepGadgetIterate::reconfigure(unsigned int set, unsigned int slice)
   {    
     unsigned int idx = set*slices_+slice;
     GDEBUG("ACW idx = %i, ACW readoutsperframe = %i\n",idx, readouts_per_frame_[idx]); 
@@ -987,5 +980,5 @@ namespace Gadgetron{
     
   }
 
-  GADGET_FACTORY_DECLARE(gpuGenericSensePrepGadget)
+  GADGET_FACTORY_DECLARE(gpuGenericSensePrepGadgetIterate)
 }

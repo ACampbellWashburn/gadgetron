@@ -1,4 +1,4 @@
-#include "gpuGenericSensePrepGadget.h"
+#include "gpuRepetitionSensePrepGadget.h"
 #include "cuNonCartesianSenseOperator.h"
 #include "GenericReconJob.h"
 #include "cuNDArray_elemwise.h"
@@ -19,7 +19,7 @@
 
 namespace Gadgetron{
 
-  gpuGenericSensePrepGadget::gpuGenericSensePrepGadget()
+  gpuRepetitionSensePrepGadget::gpuRepetitionSensePrepGadget()
     : slices_(-1)
     , sets_(-1)
     , device_number_(-1)
@@ -27,9 +27,9 @@ namespace Gadgetron{
   {
   }
   
-  gpuGenericSensePrepGadget::~gpuGenericSensePrepGadget() {}
+  gpuRepetitionSensePrepGadget::~gpuRepetitionSensePrepGadget() {}
   
-  int gpuGenericSensePrepGadget::process_config(ACE_Message_Block* mb)
+  int gpuRepetitionSensePrepGadget::process_config(ACE_Message_Block* mb)
   {
     // Get configuration values from config file
     //
@@ -188,8 +188,9 @@ namespace Gadgetron{
     
     // Define various per slice/set variables
     //
-    
+
     previous_readout_no_ = boost::shared_array<long>(new long[slices_*sets_]);
+    previous_repetition_no_ = boost::shared_array<long>(new long[slices_*sets_]);
     acceleration_factor_ = boost::shared_array<long>(new long[slices_*sets_]);
     image_counter_ = boost::shared_array<long>(new long[slices_*sets_]);
     readout_counter_frame_= boost::shared_array<long>(new long[slices_*sets_]);
@@ -202,7 +203,9 @@ namespace Gadgetron{
     num_coils_ = boost::shared_array<unsigned int>(new unsigned int[slices_*sets_]);
     
     for( unsigned int i=0; i<slices_*sets_; i++ ){
+
       previous_readout_no_[i] = -1;
+      previous_repetition_no_[i] = -1;
       acceleration_factor_[i] = -1;
       image_counter_[i] = 0;
       readout_counter_frame_[i] = 0;
@@ -213,7 +216,7 @@ namespace Gadgetron{
       num_coils_[i] = 0;
       buffer_update_needed_[i] = true;
       reconfigure_[i] = true;
- 
+
       // Assign some default values ("upper bound estimates") of the (possibly) unknown entities
       //
       
@@ -276,7 +279,7 @@ namespace Gadgetron{
     return GADGET_OK;
   }
 
-  int gpuGenericSensePrepGadget::
+  int gpuRepetitionSensePrepGadget::
   process(GadgetContainerMessage<ISMRMRD::AcquisitionHeader> *m1,           // header
           GadgetContainerMessage< hoNDArray< std::complex<float> > > *m2,   // data
           GadgetContainerMessage< hoNDArray<float> > *m3)                   // traj/dcw
@@ -295,7 +298,7 @@ namespace Gadgetron{
 
     boost::shared_ptr<GPUTimer> process_timer;
     if( output_timing_ )
-      process_timer = boost::shared_ptr<GPUTimer>( new GPUTimer("gpuGenericSensePrepGadget::process()") );
+      process_timer = boost::shared_ptr<GPUTimer>( new GPUTimer("gpuRepetitionSensePrepGadget::process()") );
 
     // Some convienient utility variables
     //
@@ -303,9 +306,9 @@ namespace Gadgetron{
     unsigned int set = m1->getObjectPtr()->idx.set;
     unsigned int slice = m1->getObjectPtr()->idx.slice;
     unsigned int readout = m1->getObjectPtr()->idx.kspace_encode_step_1;
+    unsigned int repetition = m1->getObjectPtr()->idx.repetition;
     unsigned int idx = set*slices_+slice;
-         
-    
+
     // Get a pointer to the accumulation buffer. 
     //
 
@@ -359,18 +362,19 @@ namespace Gadgetron{
       GDEBUG("Reconfiguring (due to boolean indicator)\n");
       reconfigure(set, slice);
     }
-    
 
     // Keep track of the incoming readout ids
     // - to determine the number of readouts per frame
     // - to determine the number of frames per rotation
+
     if (previous_readout_no_[idx] >= 0) {
-      if(readout >= previous_readout_no_[idx]){  
-	// This is not the last readout in the frame.
+
+      if ( repetition > previous_repetition_no_[idx]) { 
+        // This is not the last readout in the frame.
         // Make an estimate of the acceleration factor
         //
 	
-        long tmp_accel = readout - previous_readout_no_[idx];
+        long tmp_accel = 1;//readout - previous_readout_no_[idx];
 
         if( acceleration_factor_[idx] != tmp_accel )
           GDEBUG("Detected an acceleration factor of %d\n", tmp_accel);
@@ -384,14 +388,16 @@ namespace Gadgetron{
 
         if( readouts_per_frame.value() == 0 &&
             readout_counter_frame_[idx] > 0 &&
-            readout_counter_frame_[idx] != readouts_per_frame_[idx]){ 
+            readout_counter_frame_[idx] != readouts_per_frame_[idx] ){ 
 
           // A new acceleration factor is detected
           //
 
+          GDEBUG("Reconfiguring (acceleration factor changed)\n");
+
           new_frame_detected = true;
           readouts_per_frame_[idx] = readout_counter_frame_[idx];
-	  
+
           // Assume that #frames/rotation equals the acceleration factor
           // If not, or if we cannot deduce the acceleration factor from the difference
           // of two subsequent readout ids, then 'frames_per_rotation' have to be specified in the config...
@@ -400,12 +406,12 @@ namespace Gadgetron{
           if( frames_per_rotation.value() == 0 ) {
             frames_per_rotation_[idx] = acceleration_factor_[idx];
           }
-	  
           reconfigure(set, slice);
         }
       }
     }
     previous_readout_no_[idx] = readout;
+    previous_repetition_no_[idx] = repetition;
 
     // Enqueue readout
     // - unless 'new_frame_detected', then the current readout does not belong to the current frame and we delay enqueing
@@ -421,12 +427,13 @@ namespace Gadgetron{
 
     // If the readout is the last of a "true frame" (ignoring any sliding window readouts)
     // - then update the accumulation buffer
+
     bool is_last_readout_in_frame = (readout_counter_frame_[idx] == readouts_per_frame_[idx]-1);
     is_last_readout_in_frame |= new_frame_detected;
 
     cuNDArray<floatd2> traj;
     cuNDArray<float> dcw;
-
+    
     if( is_last_readout_in_frame ){
 
       // Get ready to update the csm/regularization buffer
@@ -437,9 +444,8 @@ namespace Gadgetron{
 
       boost::shared_ptr< hoNDArray<float_complext> > host_samples = 
         extract_samples_from_queue( &frame_readout_queue_[idx], false, set, slice );
-      
-      GDEBUG("ACE here5\n");
-       cuNDArray<float_complext> samples( host_samples.get() );
+            
+      cuNDArray<float_complext> samples( host_samples.get() );
 
       // Extract this frame's trajectory and dcw.
       //
@@ -461,7 +467,7 @@ namespace Gadgetron{
 
     // Are we ready to reconstruct (downstream)?
     //
-    
+
     long readouts_per_reconstruction = readouts_per_frame_[idx];
 
     if( rotations_per_reconstruction_ > 0 )
@@ -512,9 +518,6 @@ namespace Gadgetron{
       header->getObjectPtr()->image_index = image_counter_[idx]++; 
       header->getObjectPtr()->image_series_index = idx;
 
-      //ACW
-      memcpy(header->getObjectPtr()->user_int,base_head->user_int,sizeof(int)*8);
-
       image_headers_queue_[idx].enqueue_tail(header);
     }
     
@@ -534,7 +537,6 @@ namespace Gadgetron{
         //
 
         boost::shared_ptr< cuNDArray<float_complext> > csm_data = acc_buffer->get_accumulated_coil_images();
-	
 
         // Estimate CSM
         //
@@ -587,7 +589,7 @@ namespace Gadgetron{
 	  
           ((cuSenseBufferCg<float,2>*)acc_buffer)->preprocess(&traj);
           ((cuSenseBufferCg<float,2>*)acc_buffer)->set_dcw_for_rhs(boost::shared_ptr< cuNDArray<float> >(new cuNDArray<float>(&dcw)));
-        } 
+        }
 
         reg_image = acc_buffer->get_combined_coil_image();	
         reg_host_[idx] = *(reg_image->to_host());
@@ -627,7 +629,7 @@ namespace Gadgetron{
 
       // Set up the Sense job
       //
-      
+
       GadgetContainerMessage< GenericReconJob > *sj = new GadgetContainerMessage<GenericReconJob>();
       	
       sj->getObjectPtr()->dat_host_ = samples_host;      
@@ -687,52 +689,37 @@ namespace Gadgetron{
       // Pass the Sense job downstream
       //
       //ACW start
-      
-      GadgetContainerMessage<ISMRMRD::ImageHeader>* ncm1 =
-	new GadgetContainerMessage<ISMRMRD::ImageHeader>();
+      //GadgetContainerMessage<ISMRMRD::ImageHeader>* ncm1 =
+	//new GadgetContainerMessage<ISMRMRD::ImageHeader>();
 
-      GadgetContainerMessage<hoNDArray< std::complex<float> > >* ncm2 =
-	new GadgetContainerMessage<hoNDArray< std::complex<float> > >();
-      
-      *ncm1->getObjectPtr() = sj->getObjectPtr()->image_headers_[0];
-      ncm1->getObjectPtr()->channels = 1; 
-      
-      ncm2->getObjectPtr()->create(sj->getObjectPtr()->reg_host_.get()->get_dimensions());
+      //GadgetContainerMessage<hoNDArray< std::complex<float> > >* ncm2 =
+	//new GadgetContainerMessage<hoNDArray< std::complex<float> > >();
 
-      memcpy(ncm2->getObjectPtr()->get_data_ptr(),sj->getObjectPtr()->reg_host_.get()->get_data_ptr(),sj->getObjectPtr()->reg_host_.get()->get_number_of_elements()*sizeof(float)*2);
-      
-      //ACW test                                                                                                                                                                           
-      //boost::shared_ptr< hoNDArray<float_complext> > test = *ncm2->getObjectPtr()->get_data_ptr();                                                                                             
-      //GenericReconJob *test = m2->getObjectPtr();
-      //boost::shared_ptr< cuNDArray<float_complext> > test2(new cuNDArray<float_complext> (test->dat_host_.get()));
-      //write_nd_array<float_complext>(m2->getObjectPtr()->dat_host_.get(),"writetest.cplx");
-      
+      //*ncm1->getObjectPtr() = sj->getObjectPtr()->image_headers_[0];
+      //ncm1->getObjectPtr()->channels = 1; 
 
-      ncm1->cont(ncm2);
-      if(1){
-	m4->release();
-	std::cout<<" pass the ncm1 ..."<<std::endl;
-	if(this->next()->putq(ncm1)<0){
-	  GDEBUG("Failed to put job on queue.\n");
-	  ncm1->release();
-	  return GADGET_FAIL;
-	}
-      }else{
-	ncm1->release();//ACW end
-      
+      //ncm2->getObjectPtr()->create(sj->getObjectPtr()->reg_host_.get()->get_dimensions());
 
-      //RR sets
-      //int RR;
-      //RR = m1->getObjectPtr()->user_int[5];
-      //m1->getObjectPtr()->idx.set=RR;
-      
+      //memcpy(ncm2->getObjectPtr()->get_data_ptr(),sj->getObjectPtr()->reg_host_.get()->get_data_ptr(),sj->getObjectPtr()->reg_host_.get()->get_number_of_elements()*sizeof(float)*2);
+
+      //ncm1->cont(ncm2);
+      //if(1){
+	//m4->release();
+	////std::cout<<" pass the ncm1 ..."<<std::endl;
+	//if(this->next()->putq(ncm1)<0){
+	//  GDEBUG("Failed to put job on queue.\n");
+	//  ncm1->release();
+	//  return GADGET_FAIL;
+	//}
+      //}else{
+	//ncm1->release();//ACW end
 
 	if (this->next()->putq(m4) < 0) {
 	  GDEBUG("Failed to put job on queue.\n");
 	  m4->release();
 	  return GADGET_FAIL;
-      	}
-	}//ACW end bracket
+	}
+     // }//ACW end bracket
     }
       
 
@@ -768,12 +755,11 @@ namespace Gadgetron{
       process_timer.reset();
     
     m1->release(); // this is safe, the internal queues hold copies
-    
     return GADGET_OK;
   }
   
   boost::shared_ptr< hoNDArray<float_complext> > 
-  gpuGenericSensePrepGadget::extract_samples_from_queue ( ACE_Message_Queue<ACE_MT_SYNCH> *queue, 
+  gpuRepetitionSensePrepGadget::extract_samples_from_queue ( ACE_Message_Queue<ACE_MT_SYNCH> *queue, 
                                                           bool sliding_window, unsigned int set, unsigned int slice )
   {    
     unsigned int readouts_buffered = queue->message_count();
@@ -785,18 +771,18 @@ namespace Gadgetron{
     boost::shared_ptr< hoNDArray<float_complext> > host_samples(new hoNDArray<float_complext>(&dims));
     
     for (unsigned int p=0; p<readouts_buffered; p++) {
-     
+      
       ACE_Message_Block* mbq;
       if (queue->dequeue_head(mbq) < 0) {
         GDEBUG("Message dequeue failed\n");
-        throw std::runtime_error("gpuGenericSensePrepGadget::extract_samples_from_queue: dequeing failed");	
+        throw std::runtime_error("gpuRepetitionSensePrepGadget::extract_samples_from_queue: dequeing failed");	
       }
       
       GadgetContainerMessage< hoNDArray< std::complex<float> > > *daq = AsContainerMessage<hoNDArray< std::complex<float> > >(mbq);
 	
       if (!daq) {
         GDEBUG("Unable to interpret data on message queue\n");
-        throw std::runtime_error("gpuGenericSensePrepGadget::extract_samples_from_queue: failed to interpret data");	
+        throw std::runtime_error("gpuRepetitionSensePrepGadget::extract_samples_from_queue: failed to interpret data");	
       }
 	
       for (unsigned int c = 0; c < num_coils_[set*slices_+slice]; c++) {
@@ -806,11 +792,7 @@ namespace Gadgetron{
 	    
         std::complex<float> *r_ptr = daq->getObjectPtr()->get_data_ptr();
         r_ptr += c*daq->getObjectPtr()->get_size(0);
-
-	//ACW
-	//for(int i=0;i<samples_per_readout_;i++){
-	  //GDEBUG("ACW r_ptr = %f\n",std::abs(r_ptr[i]));
-	//}
+	  
         memcpy(data_ptr, r_ptr, samples_per_readout_*sizeof(float_complext));
       }
 
@@ -830,22 +812,22 @@ namespace Gadgetron{
   }
   
   boost::shared_ptr< hoNDArray<float> > 
-  gpuGenericSensePrepGadget::extract_trajectory_from_queue ( ACE_Message_Queue<ACE_MT_SYNCH> *queue, 
+  gpuRepetitionSensePrepGadget::extract_trajectory_from_queue ( ACE_Message_Queue<ACE_MT_SYNCH> *queue, 
                                                              bool sliding_window, unsigned int set, unsigned int slice )
   {    
     if(!queue) {
       GDEBUG("Illegal queue pointer, cannot extract trajectory\n");
-      throw std::runtime_error("gpuGenericSensePrepGadget::extract_trajectory_from_queue: illegal queue pointer");	
+      throw std::runtime_error("gpuRepetitionSensePrepGadget::extract_trajectory_from_queue: illegal queue pointer");	
     }
 
     if(queue->message_count()==0) {
       GDEBUG("Empty queue, cannot extract trajectory\n");
-      throw std::runtime_error("gpuGenericSensePrepGadget::extract_trajectory_from_queue: empty queue");	
+      throw std::runtime_error("gpuRepetitionSensePrepGadget::extract_trajectory_from_queue: empty queue");	
     }
 
     if(samples_per_readout_ < 1) {
       GDEBUG("Empty queue (%d), cannot extract trajectory\n", samples_per_readout_);
-      throw std::runtime_error("gpuGenericSensePrepGadget::extract_trajectory_from_queue: empty queue");	
+      throw std::runtime_error("gpuRepetitionSensePrepGadget::extract_trajectory_from_queue: empty queue");	
     }
     
     unsigned int readouts_buffered = queue->message_count();
@@ -861,14 +843,14 @@ namespace Gadgetron{
       ACE_Message_Block* mbq;
       if (queue->dequeue_head(mbq) < 0) {
         GDEBUG("Message dequeue failed\n");
-        throw std::runtime_error("gpuGenericSensePrepGadget::extract_trajectory_from_queue: dequeing failed");	
+        throw std::runtime_error("gpuRepetitionSensePrepGadget::extract_trajectory_from_queue: dequeing failed");	
       }
       
       GadgetContainerMessage< hoNDArray<float> > *daq = AsContainerMessage<hoNDArray<float> >(mbq);
 	
       if (!daq) {
         GDEBUG("Unable to interpret data on message queue\n");
-        throw std::runtime_error("gpuGenericSensePrepGadget::extract_trajectory_from_queue: failed to interpret data");	
+        throw std::runtime_error("gpuRepetitionSensePrepGadget::extract_trajectory_from_queue: failed to interpret data");	
       }
 
       float *data_ptr = host_samples->get_data_ptr();
@@ -893,7 +875,7 @@ namespace Gadgetron{
     return host_samples;
   }
   
-  void gpuGenericSensePrepGadget::extract_trajectory_and_dcw_from_queue
+  void gpuRepetitionSensePrepGadget::extract_trajectory_and_dcw_from_queue
   ( ACE_Message_Queue<ACE_MT_SYNCH> *queue, bool sliding_window, unsigned int set, unsigned int slice, 
     unsigned int samples_per_frame, unsigned int num_frames,
     cuNDArray<floatd2> *traj, cuNDArray<float> *dcw )
@@ -947,18 +929,17 @@ namespace Gadgetron{
   }
 
   template<class T> GadgetContainerMessage< hoNDArray<T> >*
-  gpuGenericSensePrepGadget::duplicate_array( GadgetContainerMessage< hoNDArray<T> > *array )
+  gpuRepetitionSensePrepGadget::duplicate_array( GadgetContainerMessage< hoNDArray<T> > *array )
   {
     GadgetContainerMessage< hoNDArray<T> > *copy = new GadgetContainerMessage< hoNDArray<T> >();   
     *(copy->getObjectPtr()) = *(array->getObjectPtr());
     return copy;
   }
 
-  void gpuGenericSensePrepGadget::reconfigure(unsigned int set, unsigned int slice)
+  void gpuRepetitionSensePrepGadget::reconfigure(unsigned int set, unsigned int slice)
   {    
     unsigned int idx = set*slices_+slice;
-    GDEBUG("ACW idx = %i, ACW readoutsperframe = %i\n",idx, readouts_per_frame_[idx]); 
-    GDEBUG("ACW Reconfigure Set, slices, slice = %d, %d, %d\n",set,slices_,slice);
+    
     GDEBUG("\nReconfiguring:\n#readouts/frame:%d\n#frames/rotation: %d\n#rotations/reconstruction:%d\n", 
                   readouts_per_frame_[idx], frames_per_rotation_[idx], rotations_per_reconstruction_);
     
@@ -984,8 +965,7 @@ namespace Gadgetron{
                          kernel_width_, num_coils_[idx], buffer_length_in_rotations_, buffer_frames_per_rotation_[idx] );
     }
     reconfigure_[idx] = false;
-    
   }
 
-  GADGET_FACTORY_DECLARE(gpuGenericSensePrepGadget)
+  GADGET_FACTORY_DECLARE(gpuRepetitionSensePrepGadget)
 }

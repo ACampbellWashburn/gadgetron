@@ -1,4 +1,4 @@
-#include "FlowPhaseSubtractionGadget.h"
+#include "SpiralOffResSubtract.h"
 #include "ismrmrd/xml.h"
 
 #ifdef USE_OMP
@@ -7,11 +7,11 @@
 
 namespace Gadgetron{
 
-  FlowPhaseSubtractionGadget::FlowPhaseSubtractionGadget() {}
+  SpiralOffResSubtract::SpiralOffResSubtract() {}
 
-  FlowPhaseSubtractionGadget::~FlowPhaseSubtractionGadget() {}
+  SpiralOffResSubtract::~SpiralOffResSubtract() {}
 
-  int FlowPhaseSubtractionGadget::process_config(ACE_Message_Block* mb)
+  int SpiralOffResSubtract::process_config(ACE_Message_Block* mb)
   {
 
     ISMRMRD::IsmrmrdHeader h;
@@ -47,11 +47,11 @@ namespace Gadgetron{
   return GADGET_OK;
   }
 
-  int FlowPhaseSubtractionGadget::
+  int SpiralOffResSubtract::
   process(GadgetContainerMessage<ISMRMRD::ImageHeader>* m1,
 	  GadgetContainerMessage< hoNDArray< std::complex<float> > >* m2)
   {
-
+    GDEBUG("ACW sets = %i\n",sets_);
     // We need two sets to make a phase subtraction
     if (sets_ < 2) {
       GDEBUG("ACW sets<2\n");      
@@ -60,16 +60,18 @@ namespace Gadgetron{
       }
       return GADGET_OK;
     }
-    
+
+    int gw; 
+    gw = m1->getObjectPtr()->user_int[7];
+    GDEBUG("Subtract ACW guidewire = %i\n",gw);
+    //if(gw==0){
+    // if(this->next()->putq(m1)<0){
+    //	return GADGET_FAIL; 
+    //}
+    //}else{
+
     size_t set = m1->getObjectPtr()->set;
 
-    GDEBUG("ACW set = %i\n",set); 
-    GDEBUG("ACW sets = %i\n",sets_);
-
-//RR
-    //int RR = m1->getObjectPtr()->user_int[5];
-    //GDEBUG("ACW set = %i \n",set);
-    //GDEBUG("ACW sets = %i\n",sets_); 
     // Enqueue until we have images from both sets
     //
 
@@ -79,10 +81,10 @@ namespace Gadgetron{
     };
 
     // Phase subtract 
-    // 
- 
+    //
+    GDEBUG("ACW test Phase Subtract\n"); 
     while( buffer_[0].message_count()>0 && buffer_[1].message_count()>0 ) {
-      
+
       ACE_Message_Block *mbq1, *mbq2;
 
       if( buffer_[0].dequeue_head(mbq1) < 0 || buffer_[1].dequeue_head(mbq2) < 0 ) {
@@ -106,8 +108,7 @@ namespace Gadgetron{
 	
       // Some validity checks
       //
-      
-
+     
       if( pm1->getObjectPtr()->image_index != pm2->getObjectPtr()->image_index ) {
 	GDEBUG("Mismatch in image indices detected (%d, %d). Bailing out.\n", 
 		      pm1->getObjectPtr()->image_index, pm2->getObjectPtr()->image_index);
@@ -128,23 +129,44 @@ namespace Gadgetron{
 	}
 	return GADGET_FAIL;
       }
-     
+
       std::complex<float> *p1 = cpm1->getObjectPtr()->get_data_ptr();
       std::complex<float> *p2 = cpm2->getObjectPtr()->get_data_ptr();
+      float minimum_val = 0.0;
 
-#ifdef USE_OMP
-#pragma omp parallel for
-#endif
+      // if(gw==1){
+
+      #ifdef USE_OMP
+      #pragma omp parallel for
+      #endif
+
+     
       for( long i = 0; i < (long)m2->getObjectPtr()->get_number_of_elements(); i++ ) {
-	std::complex<float> tmp = std::polar((std::abs(p1[i])+std::abs(p2[i]))/2.0f, std::arg(p2[i])-std::arg(p1[i]));
+	std::complex<float> tmp; 
+	if(gw==2){
+	  tmp = p1[i]-p2[i];//Complex subtraction
+	}else if(gw==1){//Magnitude subtraction
+	  tmp = (std::abs(p1[i])-std::abs(p2[i])); 
+	}else{
+	  tmp = p2[i];//Antomical imaging 
+	}
+	if(std::real( tmp) < minimum_val){
+	  minimum_val=std::real(tmp);
+	}
 	p2[i] = tmp;
       }
+      if(gw==1){
+	for(long i = 0; i<(long)m2->getObjectPtr()->get_number_of_elements(); i++){
+	  p2[i] = p2[i]+minimum_val; //Magnitude subtraction
+	}
+      
+      }
+
       
       pm1->release();	
       pm2->getObjectPtr()->set = 0;
-      
-      if (this->next()->putq(pm2) < 0) {
 
+      if (this->next()->putq(pm2) < 0) {
 	if( buffer_[set].message_count() > 0 ) {
 	  pm2->release();
 	  buffer_[set].dequeue_tail(mbq1); // or m1 will be attempted deleted twice
@@ -152,9 +174,10 @@ namespace Gadgetron{
 	return GADGET_FAIL;
       }
 
-    }
+    }//ifdeg USE_OMP
+    
     return GADGET_OK;
   }
 
-  GADGET_FACTORY_DECLARE(FlowPhaseSubtractionGadget)
+  GADGET_FACTORY_DECLARE(SpiralOffResSubtract)
 }

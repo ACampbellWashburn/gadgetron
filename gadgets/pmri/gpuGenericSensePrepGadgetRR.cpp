@@ -687,7 +687,7 @@ namespace Gadgetron{
       // Pass the Sense job downstream
       //
       //ACW start
-      
+      /*
       GadgetContainerMessage<ISMRMRD::ImageHeader>* ncm1 =
 	new GadgetContainerMessage<ISMRMRD::ImageHeader>();
 
@@ -700,13 +700,6 @@ namespace Gadgetron{
       ncm2->getObjectPtr()->create(sj->getObjectPtr()->reg_host_.get()->get_dimensions());
 
       memcpy(ncm2->getObjectPtr()->get_data_ptr(),sj->getObjectPtr()->reg_host_.get()->get_data_ptr(),sj->getObjectPtr()->reg_host_.get()->get_number_of_elements()*sizeof(float)*2);
-      
-      //ACW test                                                                                                                                                                           
-      //boost::shared_ptr< hoNDArray<float_complext> > test = *ncm2->getObjectPtr()->get_data_ptr();                                                                                             
-      //GenericReconJob *test = m2->getObjectPtr();
-      //boost::shared_ptr< cuNDArray<float_complext> > test2(new cuNDArray<float_complext> (test->dat_host_.get()));
-      //write_nd_array<float_complext>(m2->getObjectPtr()->dat_host_.get(),"writetest.cplx");
-      
 
       ncm1->cont(ncm2);
       if(1){
@@ -719,20 +712,13 @@ namespace Gadgetron{
 	}
       }else{
 	ncm1->release();//ACW end
-      
-
-      //RR sets
-      //int RR;
-      //RR = m1->getObjectPtr()->user_int[5];
-      //m1->getObjectPtr()->idx.set=RR;
-      
-
+      */
 	if (this->next()->putq(m4) < 0) {
 	  GDEBUG("Failed to put job on queue.\n");
 	  m4->release();
 	  return GADGET_FAIL;
       	}
-	}//ACW end bracket
+	//}//ACW end bracket
     }
       
 

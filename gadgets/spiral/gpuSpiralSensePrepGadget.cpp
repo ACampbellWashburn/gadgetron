@@ -356,7 +356,12 @@ namespace Gadgetron{
 
     // Define some utility variables
     //
-
+    //RR
+    //int RR; 
+    //RR = m1->getObjectPtr()->user_int[4];
+    //m1->getObjectPtr()->idx.set = RR; 
+    GDEBUG("ACW SensePrep Set  = %i \n",m1->getObjectPtr()->idx.set);
+    
     unsigned int samples_to_copy = m1->getObjectPtr()->number_of_samples-samples_to_skip_end_;
     unsigned int interleave = m1->getObjectPtr()->idx.kspace_encode_step_1;
     unsigned int slice = m1->getObjectPtr()->idx.slice;
