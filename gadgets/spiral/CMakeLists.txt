@@ -13,6 +13,7 @@ include_directories(
   ${CMAKE_SOURCE_DIR}/toolboxes/solvers/gpu
   ${CMAKE_SOURCE_DIR}/toolboxes/operators
   ${CMAKE_SOURCE_DIR}/toolboxes/operators/gpu
+  ${CMAKE_SOURCE_DIR}/toolboxes/fft/cpu
   ${CUDA_INCLUDE_DIRS}
   )
 
@@ -20,7 +21,9 @@ add_library(gadgetron_spiral SHARED
   gadgetron_spiral_export.h 
   vds.cpp 
   gpuSpiralSensePrepGadget.h gpuSpiralSensePrepGadget.cpp 
-  SpiralToGenericGadget.h SpiralToGenericGadget.cpp)
+  SpiralToGenericGadget.h SpiralToGenericGadget.cpp
+  SpiralOffResSets.h SpiralOffResSets.cpp
+  SpiralOffResSubtract.h SpiralOffResSubtract.cpp)
 
 set_target_properties(gadgetron_spiral PROPERTIES VERSION ${GADGETRON_VERSION_STRING} SOVERSION ${GADGETRON_SOVERSION})
 
@@ -37,7 +40,9 @@ target_link_libraries(gadgetron_spiral gadgetron_toolbox_gpuparallelmri)
 install (TARGETS gadgetron_spiral DESTINATION lib COMPONENT main)
 install (FILES vds.h gadgetron_spiral_export.h 
                      gpuSpiralSensePrepGadget.h 
-                     SpiralToGenericGadget.h 
+                     SpiralToGenericGadget.h
+		     SpiralOffResSets.h
+		     SpiralOffResSubtract.h
                      DESTINATION ${GADGETRON_INSTALL_INCLUDE_PATH} COMPONENT main)
 
 add_subdirectory(config)

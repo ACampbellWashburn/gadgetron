@@ -41,6 +41,10 @@ add_library(gadgetron_gpuparallelmri SHARED
     gpuOsSenseGadget.cpp
     gpuNlcgSenseGadget.cpp
     gpuLALMSenseGadget.cpp
+    gpuGenericSensePrepGadgetRegrid.h
+    gpuGenericSensePrepGadgetRegrid.cpp
+    gpuGenericSensePrepGadgetOffRes.h
+    gpuGenericSensePrepGadgetOffRes.cpp
   )
 
 set_target_properties(gadgetron_gpuparallelmri PROPERTIES VERSION ${GADGETRON_VERSION_STRING} SOVERSION ${GADGETRON_SOVERSION})
@@ -69,6 +73,8 @@ install (FILES  gadgetron_gpupmri_export.h
                 gpuOsSenseGadget.h
                 gpuLALMSenseGadget.h
                 gpuNlcgSenseGadget.h
+		gpuGenericSensePrepGadgetRegrid.h
+		gpuGenericSensePrepGadgetOffRes.h
                 DESTINATION ${GADGETRON_INSTALL_INCLUDE_PATH} COMPONENT main)
 
 add_subdirectory(config)
